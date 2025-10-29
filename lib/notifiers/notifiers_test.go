@@ -268,6 +268,7 @@ spec:
     params:
       _SOME_SUBST: $(build['_SOME_SUBST'])
       _SOME_SECRET: $(secrets['some-secret'])
+	  messageTemplate: "Build {{.Build.Status}} is {{.Build.ProjectId}}"
   secrets:
     - name: some-secret
       value: projects/my-project/secrets/my-secret/versions/latest
@@ -295,6 +296,7 @@ var validConfig = &Config{
 			Params: map[string]string{
 				"_SOME_SUBST":  "$(build['_SOME_SUBST'])",
 				"_SOME_SECRET": "$(secrets['some-secret'])",
+				"messageTemplate": "Build {{.Build.Status}} is {{.Build.ProjectId}}",
 			},
 		},
 		Secrets: []*Secret{{

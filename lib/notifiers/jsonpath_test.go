@@ -39,12 +39,6 @@ func TestNewResolverErrors(t *testing.T) {
 				"PIZZA": "$(])",
 			},
 		},
-		{
-			name: "no enclosing $()",
-			substs: map[string]string{
-				"PIZZA": "hello.goodbye",
-			},
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := &Config{
@@ -61,6 +55,42 @@ func TestNewResolverErrors(t *testing.T) {
 				t.Logf("got expected error %v", err)
 			}
 		})
+	}
+}
+
+func TestNewResolverSkipsNonJSONPathParams(t *testing.T) {
+	// Params without $() are silently skipped (e.g., template strings like messageTemplate)
+	cfg := &Config{
+		Spec: &Spec{
+			Notification: &Notification{
+				Params: map[string]string{
+					"VALID_JSONPATH":  "$(build.status)",
+					"TEMPLATE_STRING": "Build {{.Build.Status}} for {{.Build.ProjectId}}",
+				},
+			},
+		},
+	}
+
+	r, err := newResolver(cfg)
+	if err != nil {
+		t.Fatalf("newResolver(%v) failed unexpectedly: %v", cfg, err)
+	}
+
+	// Resolve should only include the JSONPath param, not the template string
+	build := &cbpb.Build{
+		Status: cbpb.Build_SUCCESS,
+	}
+	resolved, err := r.Resolve(context.Background(), nil, build)
+	if err != nil {
+		t.Fatalf("Resolve failed unexpectedly: %v", err)
+	}
+
+	// Should only have VALID_JSONPATH, not TEMPLATE_STRING
+	if _, ok := resolved["VALID_JSONPATH"]; !ok {
+		t.Error("VALID_JSONPATH should be resolved")
+	}
+	if _, ok := resolved["TEMPLATE_STRING"]; ok {
+		t.Error("TEMPLATE_STRING should not be resolved (it's not a JSONPath)")
 	}
 }
 

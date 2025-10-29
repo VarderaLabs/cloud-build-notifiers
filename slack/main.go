@@ -18,8 +18,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"text/template"
 	"strings"
+	"text/template"
 
 	cbpb "cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 	"github.com/GoogleCloudPlatform/cloud-build-notifiers/lib/notifiers"
@@ -40,6 +40,7 @@ func main() {
 type slackNotifier struct {
 	filter     notifiers.EventFilter
 	tmpl       *template.Template
+	textTmpl   *template.Template
 	webhookURL string
 	br         notifiers.BindingResolver
 	tmplView   *notifiers.TemplateView
@@ -70,9 +71,25 @@ func (s *slackNotifier) SetUp(ctx context.Context, cfg *notifiers.Config, blockK
 			return strings.ReplaceAll(s, old, new)
 		},
 	}).Parse(blockKitTemplate)
+	if err != nil {
+		return fmt.Errorf("failed to parse blockkit template: %w", err)
+	}
 
 	s.tmpl = tmpl
 	s.br = br
+
+	// Parse text template if provided in config params
+	if messageTemplate, ok := cfg.Spec.Notification.Params["messageTemplate"]; ok && messageTemplate != "" {
+		messageTemplateTmpl, err := template.New("message_template").Funcs(template.FuncMap{
+			"replace": func(s, old, new string) string {
+				return strings.ReplaceAll(s, old, new)
+			},
+		}).Parse(messageTemplate)
+		if err != nil {
+			return fmt.Errorf("failed to parse message template: %w", err)
+		}
+		s.textTmpl = messageTemplateTmpl
+	}
 
 	return nil
 }
@@ -133,5 +150,16 @@ func (s *slackNotifier) writeMessage() (*slack.WebhookMessage, error) {
 		return nil, fmt.Errorf("failed to unmarshal templating JSON: %w", err)
 	}
 
-	return &slack.WebhookMessage{Attachments: []slack.Attachment{{Color: clr, Blocks: blocks}}}, nil
+	msg := &slack.WebhookMessage{Attachments: []slack.Attachment{{Color: clr, Blocks: blocks}}}
+
+	// Set text if template is configured
+	if s.textTmpl != nil {
+		var textBuf bytes.Buffer
+		if err := s.textTmpl.Execute(&textBuf, s.tmplView); err != nil {
+			return nil, fmt.Errorf("failed to execute text template: %w", err)
+		}
+		msg.Text = textBuf.String()
+	}
+
+	return msg, nil
 }

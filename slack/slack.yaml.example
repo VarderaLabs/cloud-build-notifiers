@@ -21,6 +21,7 @@ spec:
     filter: build.status == Build.Status.SUCCESS
     params: 
       buildStatus: $(build.status)
+      messageTemplate: "Build {{.Build.Status}} for {{.Build.ProjectId}}"
     delivery:
       webhookUrl:
         secretRef: webhook-url

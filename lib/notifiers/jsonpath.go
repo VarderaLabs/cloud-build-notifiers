@@ -35,6 +35,11 @@ type jpResolver struct {
 func newResolver(cfg *Config) (BindingResolver, error) {
 	jps := map[string]*inputAndJSONPath{}
 	for name, path := range cfg.Spec.Notification.Params {
+		// Skip params that don't match JSONPath pattern (e.g., template strings)
+		// Only process params that start with "$(" and end with ")"
+		if !strings.HasPrefix(path, "$(") || !strings.HasSuffix(path, ")") {
+			continue
+		}
 		p, err := makeJSONPath(path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to derive substitution path from %q: %v", path, err)

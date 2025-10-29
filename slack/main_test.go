@@ -1,9 +1,9 @@
 package main
 
 import (
+	"strings"
 	"testing"
 	"text/template"
-	"strings"
 
 	cbpb "cloud.google.com/go/cloudbuild/apiv1/v2/cloudbuildpb"
 	"github.com/GoogleCloudPlatform/cloud-build-notifiers/lib/notifiers"
@@ -25,12 +25,12 @@ func TestWriteMessage(t *testing.T) {
 			"_GOOGLE_FUNCTION_TARGET": "helloHttp",
 		}
 	}`
-	
+
 	uo := protojson.UnmarshalOptions{
 		AllowPartial:   true,
 		DiscardUnknown: true,
 	}
-	
+
 	build := new(cbpb.Build)
 	bv2 := protoadapt.MessageV2Of(build)
 	uo.Unmarshal([]byte(rawPubSubMessage), bv2)
@@ -119,5 +119,89 @@ func TestWriteMessage(t *testing.T) {
 
 	if diff := cmp.Diff(got, want); diff != "" {
 		t.Errorf("writeMessage got unexpected diff: %s", diff)
+	}
+}
+
+func TestWriteMessageWithTextTemplate(t *testing.T) {
+	n := new(slackNotifier)
+
+	rawPubSubMessage := `{
+	  	"id": "111222333-4455-6677-8899-fa12345678",
+		"status": "SUCCESS",
+  		"projectId": "hello-world-123",
+		"logUrl": "https://some.example.com/log/url?foo=bar\"",
+		"substitutions": {
+			"_GOOGLE_FUNCTION_TARGET": "helloHttp",
+		}
+	}`
+
+	uo := protojson.UnmarshalOptions{
+		AllowPartial:   true,
+		DiscardUnknown: true,
+	}
+
+	build := new(cbpb.Build)
+	bv2 := protoadapt.MessageV2Of(build)
+	uo.Unmarshal([]byte(rawPubSubMessage), bv2)
+	build = protoadapt.MessageV1Of(bv2).(*cbpb.Build)
+
+	blockKitTemplate := `[
+		{
+		  "type": "section",
+		  "text": {
+			"type": "mrkdwn",
+			"text": "Build {{.Build.Substitutions._GOOGLE_FUNCTION_TARGET}} Status: {{.Build.Status}}"
+		  }
+		}
+	  ]`
+
+	tmpl, err := template.New("blockkit_template").Funcs(template.FuncMap{
+		"replace": func(s, old, new string) string {
+			return strings.ReplaceAll(s, old, new)
+		},
+	}).Parse(blockKitTemplate)
+	if err != nil {
+		t.Fatalf("failed to parse template: %v", err)
+	}
+
+	textTemplate := "Build {{.Build.Status}} for project {{.Build.ProjectId}}"
+	textTmpl, err := template.New("text_template").Funcs(template.FuncMap{
+		"replace": func(s, old, new string) string {
+			return strings.ReplaceAll(s, old, new)
+		},
+	}).Parse(textTemplate)
+	if err != nil {
+		t.Fatalf("failed to parse text template: %v", err)
+	}
+
+	n.tmpl = tmpl
+	n.textTmpl = textTmpl
+	n.tmplView = &notifiers.TemplateView{Build: &notifiers.BuildView{Build: build}}
+
+	got, err := n.writeMessage()
+	if err != nil {
+		t.Fatalf("writeMessage failed: %v", err)
+	}
+
+	want := &slack.WebhookMessage{
+		Text: "Build SUCCESS for project hello-world-123",
+		Attachments: []slack.Attachment{{
+			Color: "#22bb33",
+			Blocks: slack.Blocks{
+				BlockSet: []slack.Block{
+					&slack.SectionBlock{
+						Type: "section",
+						Text: &slack.TextBlockObject{
+							Type: "mrkdwn",
+							Text: "Build helloHttp Status: SUCCESS",
+						},
+					},
+				},
+			},
+		}},
+	}
+
+	if diff := cmp.Diff(got, want); diff != "" {
+		t.Errorf("writeMessage with textTmpl got unexpected diff: %s", diff)
 	}
 }
