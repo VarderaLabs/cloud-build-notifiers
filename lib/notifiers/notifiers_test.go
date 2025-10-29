@@ -182,11 +182,11 @@ func TestMakeCELPredicate(t *testing.T) {
 			build:     &cbpb.Build{Status: cbpb.Build_TIMEOUT, Substitutions: map[string]string{"TAG_NAME": "v1.2.003"}},
 			wantMatch: true,
 		}, {
-			name:      "complex filter with enumeration to sub-object",
-			filter:    `build.steps.filter(step, !step.id.contains("Build") && !step.id.contains("Test")).exists_one(step, step.status in [Build.Status.FAILURE, Build.Status.INTERNAL_ERROR])`,
-			build:     &cbpb.Build{Status: cbpb.Build_FAILURE, Steps: []*cbpb.BuildStep{
-				&cbpb.BuildStep{Id: "Build", Status: cbpb.Build_FAILURE}, 
-				&cbpb.BuildStep{Id: "Test", Status: cbpb.Build_SUCCESS}, 
+			name:   "complex filter with enumeration to sub-object",
+			filter: `build.steps.filter(step, !step.id.contains("Build") && !step.id.contains("Test")).exists_one(step, step.status in [Build.Status.FAILURE, Build.Status.INTERNAL_ERROR])`,
+			build: &cbpb.Build{Status: cbpb.Build_FAILURE, Steps: []*cbpb.BuildStep{
+				&cbpb.BuildStep{Id: "Build", Status: cbpb.Build_FAILURE},
+				&cbpb.BuildStep{Id: "Test", Status: cbpb.Build_SUCCESS},
 				&cbpb.BuildStep{Id: "Deploy", Status: cbpb.Build_INTERNAL_ERROR},
 			}},
 			wantMatch: true,
@@ -294,8 +294,8 @@ var validConfig = &Config{
 				Content: "{{.Build.Status}}",
 			},
 			Params: map[string]string{
-				"_SOME_SUBST":  "$(build['_SOME_SUBST'])",
-				"_SOME_SECRET": "$(secrets['some-secret'])",
+				"_SOME_SUBST":     "$(build['_SOME_SUBST'])",
+				"_SOME_SECRET":    "$(secrets['some-secret'])",
 				"messageTemplate": "Build {{.Build.Status}} is {{.Build.ProjectId}}",
 			},
 		},
@@ -310,9 +310,9 @@ func TestGetGCSConfig(t *testing.T) {
 	validYAML := strings.ReplaceAll(validConfigYAMLWithTabs, "\t", "    " /* 4 spaces */)
 	validFakeFactory := &fakeGCSReaderFactory{
 		data: map[string]string{
-			"gs://path/to/my/config.yaml":                 validYAML,
+			"gs://path/to/my/config.yaml":                     validYAML,
 			"gs://fakebucket-with-dash/dir/config.yaml":       validYAML,
-			"gs://bucket.with.dot/dir/config.yaml":        validYAML,
+			"gs://bucket.with.dot/dir/config.yaml":            validYAML,
 			"gs://fakebucket_with_underscore/dir/config.yaml": validYAML,
 		},
 	}
@@ -892,6 +892,14 @@ func TestParseTemplate(t *testing.T) {
 				URI:  "gs://path/to/my/template.yaml",
 			},
 			wantErr: true,
+		},
+		{
+			name: "valid template with jsonEscape",
+			tmpl: &Template{
+				Type:    "golang",
+				Content: `{{jsonEscape .Build.Substitutions._COMMIT_MESSAGE}}`,
+			},
+			want: `{{jsonEscape .Build.Substitutions._COMMIT_MESSAGE}}`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

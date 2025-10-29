@@ -457,6 +457,10 @@ func validateTemplate(s string) error {
 		"replace": func(s, old, new string) string {
 			return strings.ReplaceAll(s, old, new)
 		},
+		"jsonEscape": func(s string) string {
+			// Stub function for validation - actual implementation is in notifier-specific code
+			return s
+		},
 	}).Parse(s)
 
 	return err
