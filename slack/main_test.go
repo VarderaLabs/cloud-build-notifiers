@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"text/template"
@@ -203,5 +204,74 @@ func TestWriteMessageWithTextTemplate(t *testing.T) {
 
 	if diff := cmp.Diff(got, want); diff != "" {
 		t.Errorf("writeMessage with textTmpl got unexpected diff: %s", diff)
+	}
+}
+
+func TestWriteMessageWithNewlines(t *testing.T) {
+	n := new(slackNotifier)
+
+	rawPubSubMessage := `{
+	  	"id": "111222333-4455-6677-8899-fa12345678",
+		"status": "SUCCESS",
+  		"projectId": "hello-world-123",
+		"substitutions": {
+			"_COMMIT_MESSAGE": "This is a commit message\nwith a newline\nand another one"
+		}
+	}`
+
+	uo := protojson.UnmarshalOptions{
+		AllowPartial:   true,
+		DiscardUnknown: true,
+	}
+
+	build := new(cbpb.Build)
+	bv2 := protoadapt.MessageV2Of(build)
+	uo.Unmarshal([]byte(rawPubSubMessage), bv2)
+	build = protoadapt.MessageV1Of(bv2).(*cbpb.Build)
+
+	// Template with jsonEscape to handle newlines
+	blockKitTemplate := `[
+		{
+		  "type": "section",
+		  "text": {
+			"type": "mrkdwn",
+			"text": "*Commit Message:*\n{{jsonEscape .Build.Substitutions._COMMIT_MESSAGE}}"
+		  }
+		}
+	  ]`
+
+	tmpl, err := template.New("blockkit_template").Funcs(template.FuncMap{
+		"replace": func(s, old, new string) string {
+			return strings.ReplaceAll(s, old, new)
+		},
+		"jsonEscape": func(s string) string {
+			b, err := json.Marshal(s)
+			if err != nil {
+				return s
+			}
+			return string(b[1 : len(b)-1])
+		},
+	}).Parse(blockKitTemplate)
+	if err != nil {
+		t.Fatalf("failed to parse template: %v", err)
+	}
+
+	n.tmpl = tmpl
+	n.tmplView = &notifiers.TemplateView{Build: &notifiers.BuildView{Build: build}}
+
+	got, err := n.writeMessage()
+	if err != nil {
+		t.Fatalf("writeMessage failed: %v", err)
+	}
+
+	// Verify the message was created successfully (the newlines should be escaped)
+	if got == nil {
+		t.Fatal("writeMessage returned nil")
+	}
+	if len(got.Attachments) == 0 {
+		t.Fatal("writeMessage returned no attachments")
+	}
+	if got.Attachments[0].Blocks.BlockSet == nil || len(got.Attachments[0].Blocks.BlockSet) == 0 {
+		t.Fatal("writeMessage returned no blocks")
 	}
 }

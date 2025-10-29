@@ -17,6 +17,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"text/template"
@@ -69,6 +70,16 @@ func (s *slackNotifier) SetUp(ctx context.Context, cfg *notifiers.Config, blockK
 	tmpl, err := template.New("blockkit_template").Funcs(template.FuncMap{
 		"replace": func(s, old, new string) string {
 			return strings.ReplaceAll(s, old, new)
+		},
+		"jsonEscape": func(s string) string {
+			// Escape string for JSON by marshaling it and removing surrounding quotes
+			b, err := json.Marshal(s)
+			if err != nil {
+				// If marshaling fails, return the original string
+				return s
+			}
+			// Remove surrounding quotes from json.Marshal result
+			return string(b[1 : len(b)-1])
 		},
 	}).Parse(blockKitTemplate)
 	if err != nil {
@@ -145,8 +156,15 @@ func (s *slackNotifier) writeMessage() (*slack.WebhookMessage, error) {
 	}
 	var blocks slack.Blocks
 
-	err = blocks.UnmarshalJSON(buf.Bytes())
+	jsonBytes := buf.Bytes()
+	err = blocks.UnmarshalJSON(jsonBytes)
 	if err != nil {
+		// Log the problematic JSON for debugging (truncate if too long)
+		jsonStr := string(jsonBytes)
+		if len(jsonStr) > 500 {
+			jsonStr = jsonStr[:500] + "..."
+		}
+		log.Errorf("failed to unmarshal templating JSON. JSON (first 500 chars): %s", jsonStr)
 		return nil, fmt.Errorf("failed to unmarshal templating JSON: %w", err)
 	}
 
