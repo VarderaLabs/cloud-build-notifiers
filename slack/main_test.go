@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"text/template"
@@ -244,7 +245,16 @@ func TestWriteMessageWithNewlines(t *testing.T) {
 		"replace": func(s, old, new string) string {
 			return strings.ReplaceAll(s, old, new)
 		},
-		"jsonEscape": func(s string) string {
+		"jsonEscape": func(v interface{}) string {
+			if v == nil {
+				return ""
+			}
+			var s string
+			if str, ok := v.(string); ok {
+				s = str
+			} else {
+				s = fmt.Sprintf("%v", v)
+			}
 			b, err := json.Marshal(s)
 			if err != nil {
 				return s
@@ -271,7 +281,99 @@ func TestWriteMessageWithNewlines(t *testing.T) {
 	if len(got.Attachments) == 0 {
 		t.Fatal("writeMessage returned no attachments")
 	}
-	if got.Attachments[0].Blocks.BlockSet == nil || len(got.Attachments[0].Blocks.BlockSet) == 0 {
+	if len(got.Attachments[0].Blocks.BlockSet) == 0 {
 		t.Fatal("writeMessage returned no blocks")
+	}
+}
+
+func TestWriteMessageWithMissingCommitMessage(t *testing.T) {
+	n := new(slackNotifier)
+
+	rawPubSubMessage := `{
+	  	"id": "111222333-4455-6677-8899-fa12345678",
+		"status": "SUCCESS",
+  		"projectId": "hello-world-123",
+		"substitutions": {
+			"REPO_NAME": "my-repo"
+		}
+	}`
+
+	uo := protojson.UnmarshalOptions{
+		AllowPartial:   true,
+		DiscardUnknown: true,
+	}
+
+	build := new(cbpb.Build)
+	bv2 := protoadapt.MessageV2Of(build)
+	uo.Unmarshal([]byte(rawPubSubMessage), bv2)
+	build = protoadapt.MessageV1Of(bv2).(*cbpb.Build)
+
+	// Template with jsonEscape on missing _COMMIT_MESSAGE
+	blockKitTemplate := `[
+		{
+		  "type": "section",
+		  "text": {
+			"type": "mrkdwn",
+			"text": "*Commit Message:*\n{{jsonEscape .Build.Substitutions._COMMIT_MESSAGE}}"
+		  }
+		}
+	  ]`
+
+	tmpl, err := template.New("blockkit_template").Funcs(template.FuncMap{
+		"replace": func(s, old, new string) string {
+			return strings.ReplaceAll(s, old, new)
+		},
+		"jsonEscape": func(v interface{}) string {
+			if v == nil {
+				return ""
+			}
+			var s string
+			if str, ok := v.(string); ok {
+				s = str
+			} else {
+				s = fmt.Sprintf("%v", v)
+			}
+			b, err := json.Marshal(s)
+			if err != nil {
+				return s
+			}
+			return string(b[1 : len(b)-1])
+		},
+	}).Parse(blockKitTemplate)
+	if err != nil {
+		t.Fatalf("failed to parse template: %v", err)
+	}
+
+	n.tmpl = tmpl
+	n.tmplView = &notifiers.TemplateView{Build: &notifiers.BuildView{Build: build}}
+
+	got, err := n.writeMessage()
+	if err != nil {
+		t.Fatalf("writeMessage failed: %v", err)
+	}
+
+	// Verify the message was created successfully (missing _COMMIT_MESSAGE should result in empty string)
+	if got == nil {
+		t.Fatal("writeMessage returned nil")
+	}
+	if len(got.Attachments) == 0 {
+		t.Fatal("writeMessage returned no attachments")
+	}
+	if len(got.Attachments[0].Blocks.BlockSet) == 0 {
+		t.Fatal("writeMessage returned no blocks")
+	}
+
+	// Verify the commit message field is empty (since it was missing)
+	sectionBlock, ok := got.Attachments[0].Blocks.BlockSet[0].(*slack.SectionBlock)
+	if !ok {
+		t.Fatalf("Expected first block to be SectionBlock, got %T", got.Attachments[0].Blocks.BlockSet[0])
+	}
+	if sectionBlock.Text == nil {
+		t.Fatal("SectionBlock text is nil")
+	}
+	// The text should contain "*Commit Message:*\n" followed by empty string (from jsonEscape on nil)
+	expectedText := "*Commit Message:*\n"
+	if sectionBlock.Text.Text != expectedText {
+		t.Errorf("Expected text to be %q, got %q", expectedText, sectionBlock.Text.Text)
 	}
 }

@@ -71,7 +71,17 @@ func (s *slackNotifier) SetUp(ctx context.Context, cfg *notifiers.Config, blockK
 		"replace": func(s, old, new string) string {
 			return strings.ReplaceAll(s, old, new)
 		},
-		"jsonEscape": func(s string) string {
+		"jsonEscape": func(v interface{}) string {
+			// Safely escape any value for JSON, handling nil and non-string types
+			if v == nil {
+				return ""
+			}
+			var s string
+			if str, ok := v.(string); ok {
+				s = str
+			} else {
+				s = fmt.Sprintf("%v", v)
+			}
 			// Escape string for JSON by marshaling it and removing surrounding quotes
 			b, err := json.Marshal(s)
 			if err != nil {
